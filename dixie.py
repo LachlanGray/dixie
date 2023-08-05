@@ -1,6 +1,6 @@
 
 import lmql
-import os
+import asyncio
 
 black = lambda text: f"\033[30m{text}\033[0m"
 red = lambda text: f"\033[31m{text}\033[0m"
@@ -15,73 +15,144 @@ lprompt = green("> ")
 lprompt = "    " + lprompt
 
 class ChatBuffer:
+    '''
+    Responsible for storing the chat history and interfacing with the frontend.
+
+    When a completion is made, the tokens are streamed to a buffer here. When the flush
+    function is called, something is done with them, like printing. The entire completion
+    itself is returned from the assistant() function. The assistant function uses the 
+    buffer output writer to communicate with the buffer instance.
+    '''
     def __init__(self):
         self.sysem_messages = []
-        self.messages = {}
-        self.buffer = []
-        self.state = "user" # user, assistant, interpreter
+        self.messages = []
+        self.assistant_buffer = []
+        self.user_buffer = []
+        self.streaming=False
 
-    def append(self, chunk):
-        self.buffer.append(chunk)
+    def stream(self, role: str, chunk: str):
+        if role == "assistant":
+            self.assistant_buffer.append(chunk)
+        else:
+            self.user_buffer.append(chunk)
 
-chat_buffer = ChatBuffer
+    def send(self, role: str, message: str): # TODO: replace=True/false
+        self.messages.append((role, message))
+
+    def flush(self):
+        '''
+        Process chunks that have accumulated in the stream buffer. Override for different frontends.
+         '''
+        if self.top_chunk == False: # TODO: expand on this idea (non output buffer content; commands etc)
+                                               # TODO: replace False with an "exit" control object
+            print("".join(self.assistant_buffer[:-1]), end="\n")
+            self.assistant_buffer.clear()
+            return
+
+        print("".join(self.assistant_buffer), end="")
+        self.assistant_buffer.clear()
+
+    @property
+    def top_chunk(self):
+        return self.assistant_buffer[-1] if self.assistant_buffer else ""
+
+    def __iter__(self):
+        return iter(self.messages)
+
+
+chat_buffer = ChatBuffer()
 
 class BufferOutputWriter:
     def __init__(self, variable):
         self.variable = variable
         self.last_value = None
-        global chat_buffer
         self.buffer = chat_buffer
 
     async def add_interpreter_head_state(self, variable, head, prompt, where, trace, is_valid, is_final, mask, num_tokens, program_variables):
         if self.variable is not None:
-            value = program_variables.variable_values.get(self.variable, "")
+
+            value = program_variables.variable_values.get(self.variable, "").strip()
+            prompt_state = program_variables.runtime.root_state.query_head
+
+            reached_end = prompt_state.result is not None
 
             if self.last_value is None:
                 self.last_value = value
-                self.buffer.append(value)
+                self.buffer.stream("assistant", value)
             else:
-                self.buffer.append(value[len(self.last_value):])
+                self.buffer.stream("assistant", value[len(self.last_value):])
                 self.last_value = value
+
             return
 
-@lmql.query
-async def chat():
+    def terminate(self):
+        self.buffer.stream("assistant", False)
+
+writer = BufferOutputWriter("response")
+
+@lmql.query(model="chatgpt", output_writer=writer)
+async def assistant(buffer):
     '''lmql
-    global chat_buffer
-    for role, message in chat_buffer.messages:
-        if role == "assistant"
-            "{:assistant} {message}"
+    for role, content in chat_buffer.messages:
+        if role == "assistant":
+            "{:assistant}{content}"
         else:
-            "{:user} {message}"
+            "{:user}{content}"
+
+    "{:assistant} [response]"
+    buffer.terminate()
     '''
 
-def provide_commands(question):
-    @lmql.query(model="openai/gpt-3.5-turbo", decoder="sample", temperature=0.75)
-    def get_commands(question):
-        '''lmql
-        "{:user}{question}\n"
-        "{:assistant} Enter the following in your shell:\n"
-        "```\n"
-        "[commands]" where STOPS_BEFORE(commands, "```")
-        return commands.strip()
-        '''
+async def flush_loop():
+    while True:
+        if chat_buffer.top_chunk == False:
+            chat_buffer.flush()
+            break
 
-    commands = get_commands(question)[0]
-    print()
-    print(lprompt + commands.replace("\n", "\n" + lprompt))
-    print()
-    print("run? (Y/n)")
-    yn = input(blue("> "))
-    while yn not in ["Y", "n"]:
-        print("Y or n please")
-        yn = input(blue("> "))
+        chat_buffer.flush()
+        await asyncio.sleep(0.2)
 
-    if yn == "n":
-        return
 
-    for command in commands.split("\n"):
-        os.system(command)
+async def dialogue_chat():
+    user = ""
+    while user != "exit":
+        user = input(blue("> "))
+        chat_buffer.send("user", user)
+        print()
+
+        chat_buffer.stream("assistant", "> ")
+
+        result, _ = await asyncio.gather(assistant(writer), flush_loop())
+        response = result[0].variables["response"]
+        chat_buffer.send("assistant", response)
+        print()
+
+# def provide_commands(question):# {{{
+#     @lmql.query(model="openai/gpt-3.5-turbo", decoder="sample", temperature=0.75)
+#     def get_commands(question):
+#         '''lmql
+#         "{:user}{question}\n"
+#         "{:assistant} Enter the following in your shell:\n"
+#         "```\n"
+#         "[commands]" where STOPS_BEFORE(commands, "```")
+#         return commands.strip()
+#         '''
+
+#     commands = get_commands(question)[0]
+#     print()
+#     print(lprompt + commands.replace("\n", "\n" + lprompt))
+#     print()
+#     print("run? (Y/n)")
+#     yn = input(blue("> "))
+#     while yn not in ["Y", "n"]:
+#         print("Y or n please")
+#         yn = input(blue("> "))
+
+#     if yn == "n":
+#         return
+
+#     for command in commands.split("\n"):
+#         os.system(command)
 
 
 # TODO: make dixie interactive so you can have feedback loops
@@ -90,13 +161,9 @@ def provide_commands(question):
 # - method to stream text for the user to frontend
 # - I also want to be able to interupt it (instead of regenrate button, just send another message)
 
-# TODO: fun idea dixie comes with terminal frontend, and knows how build frontends for other programs
+# TODO: fun idea dixie comes with terminal frontend, and knows how build frontends for other programs}}}
 
-
-def main():
-    question = input(blue("> "))
-
-    provide_commands(question)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(dialogue_chat())
+
