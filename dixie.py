@@ -14,6 +14,13 @@ white = lambda text: f"\033[37m{text}\033[0m"
 lprompt = green("> ")
 lprompt = "    " + lprompt
 
+class CommandChunk:
+    def __init__(self, command):
+        self.command = command
+
+    def __str__(self):
+        return self.command
+
 class ChatBuffer:
     '''
     Responsible for storing the chat history and interfacing with the frontend.
@@ -42,15 +49,21 @@ class ChatBuffer:
     def flush(self):
         '''
         Process chunks that have accumulated in the stream buffer. Override for different frontends.
-         '''
-        if self.top_chunk == False: # TODO: expand on this idea (non output buffer content; commands etc)
-                                               # TODO: replace False with an "exit" control object
-            print("".join(self.assistant_buffer[:-1]), end="\n")
-            self.assistant_buffer.clear()
-            return
+        '''
+        do_continue = True
 
-        print("".join(self.assistant_buffer), end="")
+        for chunk in self.assistant_buffer:
+            if isinstance(chunk, CommandChunk):
+                if chunk.command == "exit":
+                    do_continue = False
+                else:
+                    raise Exception("Unknown command: " + chunk.command)
+                continue
+
+            print(chunk, end="")
+
         self.assistant_buffer.clear()
+        return do_continue
 
     @property
     def top_chunk(self):
@@ -86,12 +99,12 @@ class BufferOutputWriter:
             return
 
     def terminate(self):
-        self.buffer.stream("assistant", False)
+        self.buffer.stream("assistant", CommandChunk("exit"))
 
 writer = BufferOutputWriter("response")
 
 @lmql.query(model="chatgpt", output_writer=writer)
-async def assistant(buffer):
+async def mouthpiece(buffer):
     '''lmql
     for role, content in chat_buffer.messages:
         if role == "assistant":
@@ -104,13 +117,11 @@ async def assistant(buffer):
     '''
 
 async def flush_loop():
-    while True:
-        if chat_buffer.top_chunk == False:
-            chat_buffer.flush()
-            break
+    do_continue = True
+    while do_continue:
 
-        chat_buffer.flush()
-        await asyncio.sleep(0.2)
+        do_continue = chat_buffer.flush()
+        await asyncio.sleep(0.1)
 
 
 async def dialogue_chat():
@@ -120,9 +131,7 @@ async def dialogue_chat():
         chat_buffer.send("user", user)
         print()
 
-        chat_buffer.stream("assistant", "> ")
-
-        result, _ = await asyncio.gather(assistant(writer), flush_loop())
+        result, _ = await asyncio.gather(mouthpiece(writer), flush_loop())
         response = result[0].variables["response"]
         chat_buffer.send("assistant", response)
         print()
