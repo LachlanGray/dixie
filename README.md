@@ -7,38 +7,23 @@
 >
 >– From William Gibson's *Neuromancer* [^1]
 
-A(nother) digital construct to help you hack away in the terminal.
+Basically another interactive terminal assistant.
 
 ## Installation
-1. Clone this somewhere and make Dixie executable with
+The idea is that everything is contained in `dixie.py`, so you can rename it to an activation command of your choice, and move it to your path.
+
+1. Clone this or copy the contents of `dixie.py` somewhere on your `$PATH`, e.g.
 ```
-chmod +x dixie.py
+mv dixie.py /usr/local/bin/dixie.py
 ```
-2. Move `dixie.py` somewhere on your path, and choose a name for the activation command (I use "hey"). For example:
+2. Rename the file to the activation command of your choice (I use "hey")
 ```
 mv dixie.py /usr/local/bin/hey
 ```
-3. Make sure LMQL 0.0.6.5+ is available to your system python, and that you have set your `OPENAI_API_KEY` environment variable
+3. Make sure you have a recent LMQL release ([master branch](https://github.com/eth-sri/lmql) is a safe bet) available to your system python, and that you've got your `OPENAI_API_KEY` environment variable set
 
 ## Usage
-Activate Dixie with the keyword you chose. Say what you want to do, and receive a list of commands to accomplish it. Say `Y` to run them or `n` to reject them.
-
-```
-$ hey
-> I want to create a new folder called data and a file inside that says "hello world"
-
-    > mkdir data
-    > cd data
-    > echo "hello world" > file.txt
-
-run? (Y/n)
-> Y
-```
-
-**BE CAREFUL IT DOES NOT FILTER DANGEROUS COMMANDS!!!** Use at your own risk.
-
-Much more functionality to come.
-
+Now, you can say `hey` to your terminal, and you'll start a chat with gpt-3.5 (will support other models at some point). If you *explicitly* ask it to do something it will offer commands which you can accept or reject. Otherwise it will chat as usual.
 
 [^1]: Published in 1984, possibly the coolest book ever written, and full of eerie similarities to recent events.
     An all-time favourite character of mine is the construct of a legendary hacker known as the Dixie Flatline; his consciousness flashed to a ROM. Though it can't form new memories and experiences like the original, it can read and write cyberspace swiftly, making it a valuable companion.

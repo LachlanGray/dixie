@@ -1,8 +1,14 @@
+#!/usr/bin/env python
+
 import lmql
 import asyncio
+import subprocess
 
-from dataclasses import dataclass
 from lmql.runtime.program_state import ProgramState
+
+import warnings
+warnings.filterwarnings("ignore")
+
 
 # colors {{{
 black = lambda text: f"\033[30m{text}\033[0m"
@@ -16,11 +22,12 @@ white = lambda text: f"\033[37m{text}\033[0m"
 # }}}
 
 lmql.set_default_model("chatgpt")
+# lmql.set_default_model("gpt-4")
 
 @lmql.decorators.streaming
 def to_user(value: str, context: ProgramState):
     diff = context.get_diff("COMPLETION")
-    if value:
+    if value and diff:
         parts = value.split("```")
 
         if "`" in diff:
@@ -38,8 +45,7 @@ async def name_convo():
     message = chat['messages'][0][1]
     "{:user} In a few words, what's the topic of the following message:\n***\n"
     "{message}\n***"
-    "{:assistant} The topic is \"[TOPIC] where STOPS_BEFORE(TOPIC, '\"')"
-    TOPIC = TOPIC.split('"')[0] # stops before bug in lmql
+    "{:assistant} The topic is \"[TOPIC] " where STOPS_BEFORE(TOPIC, '\"')
     chat["title"] = TOPIC.strip()
     """
 
@@ -53,8 +59,79 @@ async def reply():
         else:
             "{:user}{content}"
     "{:assistant}[@to_user COMPLETION]"
-    chat["messages"].append(("assistant", COMPLETION))
+    chat["messages"].append(("assistant", COMPLETION.lstrip()))
+    print()
     """
+
+@lmql.query
+async def run_commands(message=None):
+    """lmql
+    "{:system}You provide shell commands to the user. You present a command and offer to run it."
+    if message is None:
+        messages = chat['messages']
+        for role, content in messages:
+            if role == "assistant":
+                "{:assistant}{content}"
+            else:
+                "{:user}{content}"
+    else:
+        "{:user}{message}"
+    print(green("----------------------------------------"))
+    "{:assistant}Here's what I can execute:\n```\n"
+    "[@to_user COMPLETION]" where STOPS_BEFORE(COMPLETION, "\n```")
+    print(green("\n----------------------------------------"))
+
+    conf_string = "Do you want me to run it?"
+    chat["messages"].append(("assistant", "```\n" + COMPLETION.lstrip() + "\n```\n\n" + conf_string))
+
+    proceed = input(f"Run it? (y/n) {blue('>')} ")
+    if proceed == "y":
+        chat["messages"].append(("user", "yes"))
+        result = subprocess.run(COMPLETION, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False)
+        chat["messages"].append(("assistant", "```\n" + result.stdout + "\n```"))
+        if result.stdout:
+            print(green("----------------------------------------"))
+            print(result.stdout)
+            print(green("\n----------------------------------------"))
+        else:
+            print(green("Done."))
+    else:
+        print("Aborting...")
+        chat["messages"].append(("user", "no"))
+
+
+    return COMPLETION.lstrip()
+    """
+
+actions = [
+    "run commands: The user is explicitly asking me to run or execute something.",
+    "question: The user is not asking me to perform any action, they are only asking a question.",
+]
+
+action_map = {
+    "question": reply,
+    "run commands": run_commands,
+}
+
+@lmql.query
+async def actions_required(message=None):
+    """lmql
+    last_message = message
+    if message is None:
+        last_message = chat['messages'][-1][1]
+    "{:user}A user has sent me the message:\n***\n"
+    "{last_message}\n***\n"
+    "which of the following is most appropriate?\n"
+    choices = ',\n'.join(actions)
+    "{actions}"
+    "{:assistant}The most accurate choice is \"[ACTION]\" " where STOPS_BEFORE(ACTION, ":")
+    return ACTION.strip()
+    """
+
+async def next_action(message=None):
+    action = await actions_required(message)
+    action = action[0]
+    await action_map[action]()
 
 async def dispatch(coroutines):
     tasks = [asyncio.create_task(coro) for coro in coroutines]
@@ -75,42 +152,18 @@ chat = {
 
 async def main():
     user = ""
+    user = input(blue("> "))
+    chat["messages"].append(("user", user))
+    response = await dispatch([next_action(), name_convo()])
     while True:
         user = input(blue("> "))
         if user == "exit":
             break
         chat["messages"].append(("user", user))
-        print()
-        response = await dispatch([reply(), name_convo()])
-        print()
+        response = await next_action()
 
     print(chat)
 
 if __name__ == "__main__":
     asyncio.run(main())
 
-
-# @lmql.query
-# def decide_action(message, actions):
-#     """lmql
-#     "{:system} The user will give you a message to interpret, and you must tell them the best followup action."
-#     "{:user} Here is the message:\n\n"
-#     "{message}"
-#     "And here are the available actions:\n\n"
-#     "{',\n'.join(actions)}"
-#     "{:assistant} The appropriate action is '[ACTION]" where STOPS_BEFORE(ACTION, "'")
-#     return ACTION
-#     """
-
-# @dataclass
-# class Action:
-#     description: str
-#     fn: callable
-
-# actions = {
-#     "reply": Action("Immediately say something to the user.", reply),
-# }
-
-# async def reply(messages):
-#     user_text = messages[-1][1]
-#     action = await decide_action(user_text, list(actions.keys()))
