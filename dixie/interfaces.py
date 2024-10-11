@@ -2,19 +2,55 @@ import os
 import subprocess
 import time
 import shutil
-
 from pynvim import attach
 
 from utils import port_is_busy
 
 
 class FileExplorer:
-    def __init__(self, root_dir):
+    def __init__(self, root_dir, debug=False):
         self.root_dir = root_dir
 
-    def inspect_dir(self, subdir):
-        result = subprocess.run(['tree', '-L', str(2), os.path.join(self.root_dir, subdir)], capture_output=True, text=True)
+        self.subdirs = []
+        self.history = []
 
+        self._debug = debug
+
+    def log(self, message):
+        if self._debug:
+            print(f"\033[34m{message}\033[0m")
+
+        self.history.append(message)
+
+    @property
+    def cwd(self):
+        return os.path.join(self.root_dir, *self.subdirs)
+
+    @property
+    def ls(self):
+        self.log(f"ls -l {self.cwd}")
+        result = subprocess.run(['ls', '-l', self.cwd], capture_output=True, text=True)
+        self.log(result.stdout)
+        return result.stdout
+
+    def cd(self, subdir):
+        self.log(f"cd {subdir}")
+        if subdir == "..":
+            self.subdirs.pop()
+        else:
+            # if os.path.isdir(os.path.join(self.cwd, subdir)):
+            #     self.subdirs.append(subdir)
+            # if os.path.exists(os.path.join(self.cwd, subdir)):
+            #     self.log(f"cd: not a directory: {subdir}")
+            if os.path.exists(os.path.join(self.cwd, subdir)):
+                self.subdirs.append(subdir)
+            else:
+                self.log(f"cd: no such file or directory: {subdir}")
+
+    @property
+    def cat(self):
+        self.log(f"cat {self.cwd}")
+        result = subprocess.run(['cat', self.cwd], capture_output=True, text=True)
         return result.stdout
 
 
@@ -40,7 +76,7 @@ class Vim:
         for retries in range(10):
             try:
                 time.sleep(1)
-                self.vim = attach('tcp', address=self.nvim_address, port=self.nvim_port)
+                self.vim = attach('tcp', address=self.nvim_address, port=int(self.nvim_port))
                 self.log("Success")
                 break
             except:
@@ -128,17 +164,22 @@ if __name__ == "__main__":
     file = "hello.txt"
     workspace_dir = "test_examples"
 
+    # vim ##########
+    # workspace_dir = os.path.join(os.getcwd(), workspace_dir)
 
-    workspace_dir = os.path.join(os.getcwd(), workspace_dir)
+    # vim = Vim(workspace_dir, nvim_port="7778")
+    # vim.open(file)
 
-    vim = Vim(workspace_dir, nvim_port="7778")
-    vim.open(file)
+    # text = "hi there this is\n some text\nmore\nmore"
+    # vim.append(file,text)
 
-    text = "hi there this is\n some text\nmore\nmore"
-    vim.append(file,text)
+    # vim.save()
+    # # breakpoint()
 
-    vim.save()
-    # breakpoint()
-
+    # file explorer ##########
+    explorer = FileExplorer(workspace_dir)
+    explorer.ls()
+    explorer.cd("backend")
+    explorer.ls()
 
 
