@@ -1,7 +1,8 @@
 import os
 import re
+from concurrent.futures import Future
 
-from interfaces import Vim, FileExplorer
+from interfaces import FileExplorer
 import lloam
 
 
@@ -10,19 +11,25 @@ def extract_ticks(text):
     return re.findall(pattern, text)
 
 
-class Scout:
+class FileScout:
     def __init__(self, root_dir, query):
+        super().__init__()
         self.fe = FileExplorer(root_dir, debug=True)
         self.query = query
 
+        self.results = {}
+
+        self.report = None
+
+        self.start()
+
 
     def start(self):
-        results = self.locate()
-        return self.aggregate(results)
+        self.locate()
+        self.aggregate()
 
 
     def locate(self):
-        query = self.query
 
         choice = self.choose_dirs()
         subdirs = list(set(extract_ticks(choice.options)))
@@ -42,30 +49,31 @@ class Scout:
                 judgement = self.judge_file()
 
                 if "yes" in judgement.answer.lower():
-                    results.append({
-                        "file": self.fe.cwd,
-                        "info": judgement
-                    })
+                    self.results[self.fe.cwd] = judgement
 
             else:
-                results += self.locate()
+                self.locate()
 
             self.fe.cd("..")
 
         return results
+
 
     @lloam.prompt
     def choose_dirs(self):
         """
         {self.query}
 
-        I'm in `{self.fe.cwd}`. Our of these options, which ones should I look at? Or if these aren't helpful just say "elsewhere". Please answer in one sentence.
+        I'm in `{self.fe.cwd}`. Out of these options, which ones should I look at?
+        Or if these aren't helpful just say "elsewhere".
+        Please answer in one sentence.
         ```
         {self.fe.ls}
         ```
 
-        You could look at `[options]
+        [options]
         """
+
 
     @lloam.prompt
     def judge_file(self):
@@ -77,37 +85,41 @@ class Scout:
         {self.fe.cat}
         ```
 
-        [answer]. [elaboration]
+        [answer].
 
-        In one sentence, this file tells us: [summary].
+        Please explain why in one sentence.
+
+        [summary]
         """
 
 
     @lloam.prompt
-    def finish(self, results):
+    def make_report(self, result_string):
         """
         {self.query}
 
-        I have the following:
-        {results}
+        For context:
+        {result_string}
 
-        Given that information, what can we conclude?
 
         [conclusion]
         """
 
 
-    def aggregate(self, results):
+    def aggregate(self):
 
-        if not results:
+        if not self.results:
             return None
 
-        summary = []
-        for result in results:
-            summary.append(f"`{result['file']}`:")
-            summary.append(result["info"].summary)
+        result_string = ""
 
-        return self.finish("\n".join(summary))
+        format_result = lambda name, info: f"`{name}`: {info}\n\n"
+
+        for file, info in self.results.items():
+            result_string += format_result(file, info.summary)
+
+        report = self.make_report(result_string)
+        self.report = report
 
 
 
@@ -124,8 +136,9 @@ if __name__ == "__main__":
 
     query = "I want to figure out how the backend connects to the frontend."
 
-    scout = Scout(root_dir, query)
-    result = scout.start()
+    scout = FileScout(root_dir, query)
+    scout.start()
+    report = scout.report
 
     breakpoint()
 
