@@ -129,12 +129,10 @@ if __name__ == "__main__":
     # vim = Vim(root_dir, nvim_port="7778")
     # fe = FileExplorer(root_dir, debug=True)
 
-    # query = "I want to figure out the frontend framework used in this project."
-    # query = "I want to figure out how user sessions work."
+    query = "I want to figure out how user sessions work."
     # query = "I want to figure out how the backend connects to the frontend."
-    # query = "I want to figure out the frontend stack."
+    # query = "I want to make a hyper-minimal text-based frontend to use in place of the React one."
 
-    query = "I want to figure out how the backend connects to the frontend."
 
     scout = FileScout(root_dir, query)
     scout.start()
