@@ -16,10 +16,15 @@ class Scout:
         self.query = query
 
 
+    def start(self):
+        results = self.locate()
+        return self.aggregate(results)
+
+
     def locate(self):
         query = self.query
 
-        choice = self.choose_dirs(query, self.fe)
+        choice = self.choose_dirs()
         subdirs = list(set(extract_ticks(choice.options)))
         results = []
 
@@ -34,7 +39,7 @@ class Scout:
                 if "." not in subdir:
                     continue
 
-                judgement = self.judge_file(query, self.fe.cat)
+                judgement = self.judge_file()
 
                 if "yes" in judgement.answer.lower():
                     results.append({
@@ -50,26 +55,26 @@ class Scout:
         return results
 
     @lloam.prompt
-    def choose_dirs(self, query, fe):
+    def choose_dirs(self):
         """
-        {query}
+        {self.query}
 
-        I'm in `{fe.cwd}`. Our of these options, which ones should I look at? Or if these aren't helpful "elsewhere". Please answer in one sentence.
+        I'm in `{self.fe.cwd}`. Our of these options, which ones should I look at? Or if these aren't helpful just say "elsewhere". Please answer in one sentence.
         ```
-        {fe.ls}
+        {self.fe.ls}
         ```
 
         You could look at `[options]
         """
 
     @lloam.prompt
-    def judge_file(self, query, cat):
+    def judge_file(self):
         """
-        {query}
+        {self.query}
 
         Does this file contain information that we can use? Yes or no?
         ```
-        {cat}
+        {self.fe.cat}
         ```
 
         [answer]. [elaboration]
@@ -79,9 +84,9 @@ class Scout:
 
 
     @lloam.prompt
-    def finish(self, query, results):
+    def finish(self, results):
         """
-        {query}
+        {self.query}
 
         I have the following:
         {results}
@@ -93,17 +98,16 @@ class Scout:
 
 
     def aggregate(self, results):
-        query = self.query
 
         if not results:
-            return "I couldn't find anything that matched your query."
+            return None
 
         summary = []
         for result in results:
             summary.append(f"`{result['file']}`:")
             summary.append(result["info"].summary)
 
-        return self.finish(query, "\n".join(summary))
+        return self.finish("\n".join(summary))
 
 
 
@@ -116,12 +120,12 @@ if __name__ == "__main__":
     # query = "I want to figure out the frontend framework used in this project."
     # query = "I want to figure out how user sessions work."
     # query = "I want to figure out how the backend connects to the frontend."
-    query = "I want to figure out the frontend stack."
+    # query = "I want to figure out the frontend stack."
+
+    query = "I want to figure out how the backend connects to the frontend."
 
     scout = Scout(root_dir, query)
-    collected = scout.locate()
-    result = scout.aggregate(collected)
-    print(result.conclusion)
+    result = scout.start()
 
     breakpoint()
 
