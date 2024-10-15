@@ -13,7 +13,6 @@ def extract_ticks(text):
 
 class FileScout:
     def __init__(self, root_dir, query):
-        super().__init__()
         self.fe = FileExplorer(root_dir, debug=True)
         self.query = query
 
