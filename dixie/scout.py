@@ -1,123 +1,133 @@
 import os
 import re
-from concurrent.futures import Future
+import asyncio
 
 from interfaces import FileExplorer
 import lloam
 
-
 def extract_ticks(text):
     pattern = r'`(.*?)`'
-    return re.findall(pattern, text)
+    matches = re.findall(pattern, text)
+    return list(set(matches))
 
 
-class FileScout:
-    def __init__(self, root_dir, query):
-        self.fe = FileExplorer(root_dir, debug=True)
+class FileScout(lloam.Agent):
+    def __init__(self, root_dir, query, cache_dir=None):
+        self.fe = FileExplorer(root_dir)
         self.query = query
 
+        self.sub_scouts = []
+        self.judgements = {}
         self.results = {}
+        self.cache_path = None
 
-        self.report = None
+        if cache_dir:
+            cache_file = hash(query)
+            self.cache_path = os.path.join(cache_dir, f"{cache_file}.json")
 
 
     def start(self):
-        self.locate()
-        self.aggregate()
+        asyncio.run(self.search())
 
-
-    def locate(self):
-
-        choice = self.choose_dirs()
-        subdirs = list(set(extract_ticks(choice.options)))
-        results = []
-
-        for subdir in subdirs:
-            subdir = os.path.split(subdir)[-1]
-            if not os.path.exists(os.path.join(self.fe.full_cwd, subdir)):
+        # wait for judgements to finish
+        for path, judgement in self.judgements.items():
+            if "none" in judgement.ranges.lower():
                 continue
 
-            self.fe.cd(subdir)
+            self.results[path] = judgement.ranges
 
-            if os.path.isfile(self.fe.full_cwd):
-                if "." not in subdir:
+
+    async def search(self):
+        self.directory = self.survey()
+
+        await self.directory
+        selection = extract_ticks(self.directory.selection)
+
+        tasks = []
+        for item in selection:
+            item_path = os.path.join(self.fe.full_cwd, item)
+
+            if not os.path.exists(item_path):
+                continue
+
+            if os.path.isfile(item_path):
+                if "." not in item:
+                    # assume it's a binary
                     continue
 
-                judgement = self.judge_file()
+                self.fe.cd(item)
+                try:
+                    self.judgements[self.fe.cwd] = self.file_judgement()
+                except UnicodeDecodeError:
+                    # weird file, can't read it
+                    pass
 
-                if "yes" in judgement.answer.lower():
-                    self.results[self.fe.cwd] = judgement
+                finally:
+                    self.fe.cd("..")
 
-            else:
-                self.locate()
+            elif os.path.isdir(item_path):
+                self.sub_scouts.append(FileScout(item_path, self.query))
+                tasks.append(self.sub_scouts[-1].search())
 
-            self.fe.cd("..")
+        await asyncio.gather(*tasks)
 
-        return results
-
-
-    @lloam.prompt
-    def choose_dirs(self):
-        """
-        {self.query}
-
-        I'm in `{self.fe.cwd}`. Out of these options, which ones should I look at?
-        Or if these aren't helpful just say "elsewhere".
-        Please answer in one sentence.
-        ```
-        {self.fe.ls}
-        ```
-
-        [options]
-        """
+        for scout in self.sub_scouts:
+            self.judgements.update(scout.judgements)
 
 
     @lloam.prompt
-    def judge_file(self):
+    def file_judgement(self):
         """
         {self.query}
 
-        Does this file contain information that we can use? Yes or no?
+        {self.directory.purpose}
+
+        {self.directory.selection}
+
+        In a sentence, what should we look for in `{self.fe.cwd}`?
+
+        [scope]
+
+
+        I've opened `{self.fe.cwd}` and here's what I see:
         ```
         {self.fe.cat}
         ```
+        In a sentence does this file contain information we can use?
 
-        [answer].
+        [result].
 
-        In a sentence, what does it tell us?
 
-        [summary]
+        What are the useful parts and their ranges?
+        For each one could you tell me the start and end line number, and what's there?
+        If there are no useful parts just say "None".
+
+        [ranges]
+
         """
 
 
     @lloam.prompt
-    def make_report(self, result_string):
+    def survey(self):
         """
         {self.query}
 
-        For context:
-        {result_string}
+        For the moment, I'm in the directory `{self.fe.cwd}` as I manually look for useful files.
 
-        Would you please compile this into a coherent narrative? Please be specific and include paths where possible
+        Here's what I see:
+        ```
+        {self.fe.ls}
+        ```
+        In a sentence, what purpose does this directory serve and how might it be relevant?
 
-        [conclusion]
+        [purpose].
+
+
+        Out of the options, which ones should I look at? (use ` to denote folder/file names)
+        If nothing here is relevant just say "Elsewhere".
+
+        [selection]
         """
-
-
-    def aggregate(self):
-
-        if not self.results:
-            return None
-
-        result_string = ""
-
-        format_result = lambda name, info: f"`{name}`: {info}\n\n"
-
-        for file, info in self.results.items():
-            result_string += format_result(file, info.summary)
-
-        report = self.make_report(result_string)
-        self.report = report
 
 
 
@@ -127,27 +137,29 @@ if __name__ == "__main__":
 
     # query = "I want to add a `CREATE FOREIGN DATA WRAPPER` statement for postgres."
     # query = "I want to figure out how to add new statements."
-
     # query = "I want to understand the architecture of this project."
 
-    query = "I want to understand the architecture of this project. Its components, their implementations, and how they are used."
+    # query = "I want to figure out how to add new statements."
+
+    query = "I want to understand the architecture of this project."
+    # query = "I want to add a `CREATE FOREIGN DATA WRAPPER` statement for postgres."
 
 
     scout = FileScout(root_dir, query)
+    stop_event = scout.observe()
     scout.start()
-    report = scout.report
+    stop_event.set()
 
-    conclusion = report.conclusion
+    print("DONE")
 
-    result_path = os.path.join(issue_dir, "info.md")
-    with open(result_path, "w") as f:
-        f.write(conclusion)
+    # try:
+    #     scout.start()
+    # except KeyboardInterrupt:
+    #     # Stop observing when Ctrl-C is pressed
+    #     stop_event.set()
+    #     # Continue with the rest of the program
 
-
-    # collected = locate(query, fe)
-    # result = aggregate(query, collected)
-
-    # print(result.conclusion)
-
+    # print("DONE")
+    breakpoint()
 
 
