@@ -7,3 +7,6 @@
 (Neuromancer)
 
 # The Dixie Flatline
+A side project to build a SWE agent, with flair. Made with [Lloam](https://github.com/LachlanGray/lloam).
+
+

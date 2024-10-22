@@ -17,7 +17,6 @@ class FileScout(lloam.Agent):
         self.query = query
 
         self.sub_scouts = []
-        self.judgements = {}
         self.results = {}
         self.cache_path = None
 
@@ -28,13 +27,6 @@ class FileScout(lloam.Agent):
 
     def start(self):
         asyncio.run(self.search())
-
-        # wait for judgements to finish
-        for path, judgement in self.judgements.items():
-            if "none" in judgement.ranges.lower():
-                continue
-
-            self.results[path] = judgement.ranges
 
 
     async def search(self):
@@ -57,7 +49,7 @@ class FileScout(lloam.Agent):
 
                 self.fe.cd(item)
                 try:
-                    self.judgements[self.fe.cwd] = self.file_judgement()
+                    self.results[self.fe.cwd] = self.file_judgement()
                 except UnicodeDecodeError:
                     # weird file, can't read it
                     pass
@@ -72,7 +64,7 @@ class FileScout(lloam.Agent):
         await asyncio.gather(*tasks)
 
         for scout in self.sub_scouts:
-            self.judgements.update(scout.judgements)
+            self.results.update(scout.results)
 
 
     @lloam.prompt
@@ -93,16 +85,9 @@ class FileScout(lloam.Agent):
         ```
         {self.fe.cat}
         ```
-        In a sentence does this file contain information we can use?
+        In a sentence, what does it tell us?
 
         [result].
-
-
-        What are the useful parts and their ranges?
-        For each one could you tell me the start and end line number, and what's there?
-        If there are no useful parts just say "None".
-
-        [ranges]
 
         """
 
