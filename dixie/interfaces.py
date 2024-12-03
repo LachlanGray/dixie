@@ -7,12 +7,11 @@ from pynvim import attach
 from utils import port_is_busy
 
 
-class FileExplorer:
+class FileExplorer2:
     def __init__(self, root_dir, debug=False):
-        self.root_dir = root_dir
-        self.project = os.path.split(root_dir)[-1]
+        self.root_dir, self.project = os.path.split(root_dir)
 
-        self.subdirs = []
+        self.subdirs = [self.project]
         self.history = []
 
         self._debug = debug
@@ -23,6 +22,97 @@ class FileExplorer:
 
         self.history.append(message)
 
+
+    @property
+    def cwd(self):
+        if self.subdirs == []:
+            return "/"
+        return os.path.join(*self.subdirs)
+
+    @property
+    def system_cwd(self):
+        return os.path.join(self.root_dir, *self.subdirs)
+
+    def is_dir(self, path):
+        system_path = os.path.join(self.root_dir, path)
+        return os.path.isdir(system_path)
+
+    def is_file(self, path):
+        system_path = os.path.join(self.root_dir, path)
+        return os.path.isfile(system_path)
+
+    def ls(self, directory=None):
+        if directory:
+            system_directory = os.path.join(self.root_dir, directory)
+            result = subprocess.run(['ls', system_directory], capture_output=True, text=True)
+
+            return result.stdout
+
+        self.log(f"ls {self.cwd}")
+        result = subprocess.run(['ls', self.system_cwd], capture_output=True, text=True)
+        return result.stdout
+
+    def cd(self, subdir_or_dir):
+        if subdir_or_dir == "..":
+            if self.subdirs == []:
+                return f"cd: already at root"
+
+            self.subdirs.pop()
+
+        if subdir_or_dir == "/":
+            self.subdirs = []
+            return
+
+        if os.path.exists(os.path.join(self.system_cwd, subdir_or_dir)):
+            self.subdirs.append(subdir_or_dir)
+            return
+
+        # directory = os.path.join(self.project, subdir_or_dir)
+        directory = subdir_or_dir
+        system_directory = os.path.join(self.root_dir, directory)
+
+        if not os.path.exists(system_directory):
+            return f"cd: no such file or directory: {directory}"
+
+        if not os.path.isdir(system_directory):
+            return f"cd: not a directory: {directory}"
+
+        self.subdirs = directory.split("/") # remove the project name
+
+
+    def cat(self, subdir_or_path):
+        # if path, it includes the project name
+        if os.path.exists(os.path.join(self.system_cwd, subdir_or_path)):
+            system_file_path = os.path.join(self.system_cwd, subdir_or_path)
+            file_path = os.path.join(self.cwd, subdir_or_path)
+
+        else:
+            file_path = subdir_or_path
+            system_file_path = os.path.join(self.root_dir, file_path)
+
+        if not os.path.exists(system_file_path):
+            return f"cat: {file_path}: No such file or directory"
+
+        if os.path.isdir(system_file_path):
+            return f"cat: {file_path}: Is a directory"
+
+        result = subprocess.run(['cat', '-n', system_file_path], capture_output=True, text=True)
+        file_contents = result.stdout
+
+        return file_contents
+
+
+
+class FileExplorer:
+    def __init__(self, root_dir, debug=False):
+        self.root_dir = root_dir
+        self.project = os.path.split(root_dir)[-1]
+
+        self.subdirs = []
+        self.history = []
+
+        self._debug = debug
+
     @property
     def cwd(self):
         return os.path.join(self.project, *self.subdirs)
@@ -31,10 +121,9 @@ class FileExplorer:
     def full_cwd(self):
         return os.path.join(self.root_dir, *self.subdirs)
 
-    @property
     def ls(self):
         self.log(f"ls -l {self.cwd}")
-        result = subprocess.run(['ls' , self.full_cwd], capture_output=True, text=True)
+        result = subprocess.run(['ls', '-l', self.full_cwd], capture_output=True, text=True)
         return result.stdout
 
     def cd(self, subdir):
@@ -55,12 +144,12 @@ class FileExplorer:
                 self.subdirs.append(subdir)
             else:
                 self.log(f"cd: no such file or directory: {subdir}")
-                assert False
+                assert False, f"cd: no such file or directory: {subdir}"
 
     @property
     def cat(self):
         self.log(f"read {self.cwd}")
-        result = subprocess.run(['cat', self.full_cwd], capture_output=True, text=True)
+        result = subprocess.run(['cat', '-n', self.full_cwd], capture_output=True, text=True)
         return result.stdout
 
 

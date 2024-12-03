@@ -13,6 +13,7 @@ parsed_issues_directory = 'evaluation/parsed_issues'
 repos = [
     'sqlfluff/sqlfluff',
     'pvlib/pvlib-python',
+    'All-Hands-AI/OpenHands',
 ]
 
 # raw data ####################

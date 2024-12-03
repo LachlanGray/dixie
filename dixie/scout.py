@@ -1,6 +1,7 @@
 import os
 import re
 import asyncio
+import time
 
 from interfaces import FileExplorer
 import lloam
@@ -12,8 +13,12 @@ def extract_ticks(text):
 
 
 class FileScout(lloam.Agent):
-    def __init__(self, root_dir, query, cache_dir=None):
+    def __init__(self, root_dir, query, cache_dir=None, subdirs=[]):
         self.fe = FileExplorer(root_dir)
+        if subdirs:
+            for subdir in subdirs:
+                self.fe.cd(subdir)
+
         self.query = query
 
         self.sub_scouts = []
@@ -28,8 +33,23 @@ class FileScout(lloam.Agent):
     def start(self):
         asyncio.run(self.search())
 
+        fmt = lambda file, desc: f"`{file}`: {desc}\n\n"
+        results_str = ""
+        for k, v in self.results.items():
+            try:
+                desc = v.description
+                results_str += fmt(k, desc)
+            except:
+                print("rate limitted...")
+                time.sleep(3)
 
-    async def search(self):
+
+        self.results_str = results_str
+        self.summary = self.summarize(results_str)
+        _ = self.summary.summary
+
+
+    async def search(self, top=True):
         self.directory = self.survey()
 
         await self.directory
@@ -50,6 +70,7 @@ class FileScout(lloam.Agent):
                 self.fe.cd(item)
                 try:
                     self.results[self.fe.cwd] = self.file_judgement()
+                    print(self.fe.cwd)
                 except UnicodeDecodeError:
                     # weird file, can't read it
                     pass
@@ -58,13 +79,19 @@ class FileScout(lloam.Agent):
                     self.fe.cd("..")
 
             elif os.path.isdir(item_path):
-                self.sub_scouts.append(FileScout(item_path, self.query))
-                tasks.append(self.sub_scouts[-1].search())
+                self.sub_scouts.append(FileScout(self.fe.root_dir, self.query, subdirs=self.fe.subdirs + [item] ))
+                tasks.append(self.sub_scouts[-1].search(top=False))
 
         await asyncio.gather(*tasks)
 
         for scout in self.sub_scouts:
             self.results.update(scout.results)
+
+        # if top:
+        #     # asyncio gather self.results values
+        #     await asyncio.gather(*self.results.values())
+
+        # TODO: check for stuff after closing 
 
 
     @lloam.prompt
@@ -76,19 +103,13 @@ class FileScout(lloam.Agent):
 
         {self.directory.selection}
 
-        In a sentence, what should we look for in `{self.fe.cwd}`?
-
-        [scope]
-
-
         I've opened `{self.fe.cwd}` and here's what I see:
         ```
         {self.fe.cat}
         ```
         In a sentence, what does it tell us?
 
-        [result].
-
+        [description]
         """
 
 
@@ -114,37 +135,26 @@ class FileScout(lloam.Agent):
         [selection]
         """
 
+    @lloam.prompt
+    def summarize(self, results_str):
+        """
+        {self.query}
+
+        For context:
+        {results_str}
+
+
+        [summary]
+        """
 
 
 if __name__ == "__main__":
-    issue_dir = "evaluation/workspaces/sqlfluff_issue_6335"
-    root_dir = os.path.join(issue_dir, "sqlfluff")
-
-    # query = "I want to add a `CREATE FOREIGN DATA WRAPPER` statement for postgres."
-    # query = "I want to figure out how to add new statements."
-    # query = "I want to understand the architecture of this project."
-
-    # query = "I want to figure out how to add new statements."
-
-    query = "I want to understand the architecture of this project."
-    # query = "I want to add a `CREATE FOREIGN DATA WRAPPER` statement for postgres."
-
+    root_dir = "evaluation/workspaces/OpenHands_issue_4420/OpenHands"
+    query = "I want to understand how the frontend connects to the backend"
 
     scout = FileScout(root_dir, query)
-    stop_event = scout.observe()
+    scout.observe()
     scout.start()
-    stop_event.set()
 
-    print("DONE")
-
-    # try:
-    #     scout.start()
-    # except KeyboardInterrupt:
-    #     # Stop observing when Ctrl-C is pressed
-    #     stop_event.set()
-    #     # Continue with the rest of the program
-
-    # print("DONE")
-    breakpoint()
-
+    print(scout.summary)
 

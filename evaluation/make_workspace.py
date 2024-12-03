@@ -67,7 +67,8 @@ def init_workspace_from_issue(issue):
 if __name__ == '__main__':
     os.makedirs(workspaces_dir, exist_ok=True)
 
-    issue_path = "evaluation/parsed_issues/sqlfluff_sqlfluff_issue_6335.json"
+    issue_path = "evaluation/parsed_issues/All-Hands-AI_OpenHands_issue_4420.json"
+    # issue_path = "evaluation/parsed_issues/sqlfluff_sqlfluff_issue_6335.json"
     issue = load_issue(issue_path)
     init_workspace_from_issue(issue)
 
