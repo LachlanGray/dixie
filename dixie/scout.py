@@ -2,159 +2,191 @@ import os
 import re
 import asyncio
 import time
+from collections import defaultdict
 
 from interfaces import FileExplorer
 import lloam
 
 def extract_ticks(text):
-    pattern = r'`(.*?)`'
-    matches = re.findall(pattern, text)
-    return list(set(matches))
+    inline_pattern = r'`(.*?)`'
+    inline_matches = re.findall(inline_pattern, text)
+
+    return list(set(inline_matches) - {''})
 
 
 class FileScout(lloam.Agent):
-    def __init__(self, root_dir, query, cache_dir=None, subdirs=[]):
-        self.fe = FileExplorer(root_dir)
-        if subdirs:
-            for subdir in subdirs:
-                self.fe.cd(subdir)
+    def __init__(self, root_dir, initial_query):
+        super().__init__()
+        self.explorer = FileExplorer(root_dir)
 
-        self.query = query
+        self.initial_query = initial_query
+        self.files = {}
 
-        self.sub_scouts = []
-        self.results = {}
-        self.cache_path = None
-
-        if cache_dir:
-            cache_file = hash(query)
-            self.cache_path = os.path.join(cache_dir, f"{cache_file}.json")
+        self.tasks = {}
+        self.task_graph = defaultdict(list)
 
 
     def start(self):
-        asyncio.run(self.search())
-
-        fmt = lambda file, desc: f"`{file}`: {desc}\n\n"
-        results_str = ""
-        for k, v in self.results.items():
-            try:
-                desc = v.description
-                results_str += fmt(k, desc)
-            except:
-                print("rate limitted...")
-                time.sleep(3)
+        asyncio.run(self._start())
 
 
-        self.results_str = results_str
-        self.summary = self.summarize(results_str)
-        _ = self.summary.summary
+    async def _start(self):
+        await self.explore_dir(self.explorer.cwd)
+
+        self.log("All tasks initiated. Waiting for completion.")
+        await asyncio.gather(*self.tasks.values())
+        n_files = len(self.tasks)
+
+        self.log(f"{n_files} tasks completed.")
+
+        summary = self.final_summary()
+        await summary
+        self.summary = summary.conclusion
 
 
-    async def search(self, top=True):
-        self.directory = self.survey()
+    async def explore_dir(self, directory):
+        # self.explorer.cd(directory)
+        # cwd = self.explorer.cwd
 
-        await self.directory
-        selection = extract_ticks(self.directory.selection)
+        if directory in self.task_graph:
+            self.log(f"Already explored {directory} (skipping)", level="warning")
+            return
 
-        tasks = []
-        for item in selection:
-            item_path = os.path.join(self.fe.full_cwd, item)
+        ls = self.explorer.ls(directory)
 
-            if not os.path.exists(item_path):
+        # get useful dirs
+        useful_dirs = self.choose_dirs(directory, ls)
+
+        # get useful files
+        useful_files = self.choose_files(directory, ls)
+
+
+        # create describe task for every file
+        await useful_files
+        selected_files = extract_ticks(useful_files.filenames)
+        self.log(f"prompt: {useful_files}", level="prompt")
+        self.log(f"file selection: {selected_files}")
+
+
+        for selected_file in selected_files:
+            selected_file = os.path.split(selected_file)[-1]
+            file_path = os.path.join(directory, selected_file)
+
+            if not self.explorer.is_file(file_path):
+                self.log(f"{file_path} is not a file", level="warning")
                 continue
 
-            if os.path.isfile(item_path):
-                if "." not in item:
-                    # assume it's a binary
-                    continue
+            self.log(f"Describing file {file_path}")
+            task = asyncio.create_task(
+                self.get_file_description(file_path)
+            )
+            self.tasks[file_path] = task
+            self.task_graph[directory].append(file_path)
 
-                self.fe.cd(item)
-                try:
-                    self.results[self.fe.cwd] = self.file_judgement()
-                    print(self.fe.cwd)
-                except UnicodeDecodeError:
-                    # weird file, can't read it
-                    pass
 
-                finally:
-                    self.fe.cd("..")
+        # create explore task for every child dir
+        await useful_dirs
+        selected_dirs = extract_ticks(useful_dirs.directories)
+        self.log(f"prompt: {useful_dirs}", level="prompt")
+        self.log(f"dir selection: {selected_dirs}")
 
-            elif os.path.isdir(item_path):
-                self.sub_scouts.append(FileScout(self.fe.root_dir, self.query, subdirs=self.fe.subdirs + [item] ))
-                tasks.append(self.sub_scouts[-1].search(top=False))
+        children = []
 
-        await asyncio.gather(*tasks)
+        for selected_dir in selected_dirs:
+            selected_dir = os.path.split(selected_dir)[-1]
+            selected_dir = os.path.join(directory, selected_dir)
 
-        for scout in self.sub_scouts:
-            self.results.update(scout.results)
+            if not self.explorer.is_dir(selected_dir):
+                self.log(f"{selected_dir} is not a valid directory", level="warning")
+                continue
 
-        # if top:
-        #     # asyncio gather self.results values
-        #     await asyncio.gather(*self.results.values())
 
-        # TODO: check for stuff after closing 
+            self.task_graph[directory].append(selected_dir)
+            self.log(f"Exploring directory {selected_dir}")
+            task = asyncio.create_task(self.explore_dir(selected_dir))
+
+            children.append(task)
+
+
+        # ensure all children have initiated file descriptions
+        await asyncio.gather(*children)
+
+
+    async def get_file_description(self, path):
+        contents = self.explorer.cat(path)
+        description = self.describe_file(path, contents)
+        await description
+
+        description = description.description
+        self.files[path] = description
 
 
     @lloam.prompt
-    def file_judgement(self):
+    def choose_files(self, directory, ls):
         """
-        {self.query}
+        {self.initial_query}
 
-        {self.directory.purpose}
-
-        {self.directory.selection}
-
-        I've opened `{self.fe.cwd}` and here's what I see:
+        I'm in the directory `{directory}`, and here's what's in it
         ```
-        {self.fe.cat}
+        {ls}
         ```
-        In a sentence, what does it tell us?
 
+        In a sentence, which files should I look at?
+        [filenames]
+        """
+
+    @lloam.prompt()
+    def choose_dirs(self, directory, ls):
+        """
+        {self.initial_query}
+
+        I'm in the directory `{directory}`, and here's what's in it
+        ```
+        {ls}
+        ```
+
+        In a sentence, which directories should I investigate?
+        [directories]
+        """
+
+    @lloam.prompt()
+    def describe_file(self, filename, contents):
+        """
+        {self.initial_query}
+
+        Here is one file `{filename}`
+        ```
+        {contents}
+        ```
+
+        In a short sentence what can we learn from it?
         [description]
         """
 
-
-    @lloam.prompt
-    def survey(self):
+    @lloam.prompt()
+    def final_summary(self):
         """
-        {self.query}
-
-        For the moment, I'm in the directory `{self.fe.cwd}` as I manually look for useful files.
-
-        Here's what I see:
+        Given this context:
         ```
-        {self.fe.ls}
+        {self.files}
         ```
-        In a sentence, what purpose does this directory serve and how might it be relevant?
 
-        [purpose].
+        {self.initial_query}
 
-
-        Out of the options, which ones should I look at? (use ` to denote folder/file names)
-        If nothing here is relevant just say "Elsewhere".
-
-        [selection]
-        """
-
-    @lloam.prompt
-    def summarize(self, results_str):
-        """
-        {self.query}
-
-        For context:
-        {results_str}
-
-
-        [summary]
+        [conclusion]
         """
 
 
 if __name__ == "__main__":
-    root_dir = "evaluation/workspaces/OpenHands_issue_4420/OpenHands"
-    query = "I want to understand how the frontend connects to the backend"
+    test_dir = "/Users/lachlangray/dev/dixie/evaluation/workspaces/sqlfluff_issue_6335/sqlfluff"
+    scout = FileScout(test_dir, "I want to figure out what design paradigms are used in this repository")
 
-    scout = FileScout(root_dir, query)
-    scout.observe()
+
     scout.start()
-
     print(scout.summary)
+
+
+
+
+
 

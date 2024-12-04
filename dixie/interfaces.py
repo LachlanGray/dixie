@@ -7,7 +7,7 @@ from pynvim import attach
 from utils import port_is_busy
 
 
-class FileExplorer2:
+class FileExplorer:
     def __init__(self, root_dir, debug=False):
         self.root_dir, self.project = os.path.split(root_dir)
 
@@ -102,55 +102,6 @@ class FileExplorer2:
         return file_contents
 
 
-
-class FileExplorer:
-    def __init__(self, root_dir, debug=False):
-        self.root_dir = root_dir
-        self.project = os.path.split(root_dir)[-1]
-
-        self.subdirs = []
-        self.history = []
-
-        self._debug = debug
-
-    @property
-    def cwd(self):
-        return os.path.join(self.project, *self.subdirs)
-
-    @property
-    def full_cwd(self):
-        return os.path.join(self.root_dir, *self.subdirs)
-
-    def ls(self):
-        self.log(f"ls -l {self.cwd}")
-        result = subprocess.run(['ls', '-l', self.full_cwd], capture_output=True, text=True)
-        return result.stdout
-
-    def cd(self, subdir):
-        if subdir == "..":
-            if os.path.isdir(os.path.join(self.full_cwd, subdir)):
-                self.log(f"cd ..")
-            else:
-                self.log(f"close {self.subdirs[-1]}")
-
-            self.subdirs.pop()
-        else:
-            if os.path.exists(os.path.join(self.full_cwd, subdir)):
-                if os.path.isdir(os.path.join(self.full_cwd, subdir)):
-                    self.log(f"cd {subdir}")
-                else:
-                    self.log(f"open {subdir}")
-
-                self.subdirs.append(subdir)
-            else:
-                self.log(f"cd: no such file or directory: {subdir}")
-                assert False, f"cd: no such file or directory: {subdir}"
-
-    @property
-    def cat(self):
-        self.log(f"read {self.cwd}")
-        result = subprocess.run(['cat', '-n', self.full_cwd], capture_output=True, text=True)
-        return result.stdout
 
 
 
