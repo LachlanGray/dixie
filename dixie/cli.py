@@ -18,9 +18,7 @@ def main():
 
     # Create the scout and start the observation
     scout = FileScout(args.root_dir, args.query)
-    stop_event = scout.observe()
     scout.start()
-    stop_event.set()
 
     # Print the summary
     print(scout.summary)
