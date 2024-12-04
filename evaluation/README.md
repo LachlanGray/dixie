@@ -1,7 +1,9 @@
-## Evaluation
+This is a work in progress. Not really sure what evaluation will entail yet, but it will require github issues.
 
+
+## Evaluation
 **Get issues**
-Save a github PAT to a `.env` in the repo root, then to generate the example issues run.
+Save a github access token (PAT) to a `.env` in the repository root, then to generate the example issues run.
 ```
 python evaluation/get_issues.py
 ```
