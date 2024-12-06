@@ -33,24 +33,20 @@ class FileScout(lloam.Agent):
     async def _start(self):
         await self.explore_dir(self.explorer.cwd)
 
-        self.log("All tasks initiated. Waiting for completion.")
-        await asyncio.gather(*self.tasks.values())
         n_files = len(self.tasks)
 
-        self.log(f"{n_files} tasks completed.")
+        self.log(f"Awaiting {n_files} tasks to complete.", level="update")
+        await asyncio.gather(*self.tasks.values())
 
-        summary = self.final_summary()
-        await summary
-        self.summary = summary.conclusion
+        self.log(f"{n_files} tasks completed.", level="finished")
 
 
     async def explore_dir(self, directory):
-        # self.explorer.cd(directory)
-        # cwd = self.explorer.cwd
-
         if directory in self.task_graph:
             self.log(f"Already explored {directory} (skipping)", level="warning")
             return
+
+        self.log(f"Exploring {directory}", level="update")
 
         ls = self.explorer.ls(directory)
 
@@ -63,7 +59,7 @@ class FileScout(lloam.Agent):
 
         # create describe task for every file
         await useful_files
-        selected_files = extract_ticks(useful_files.filenames)
+        selected_files = extract_ticks(useful_files.filenames.result())
         self.log(f"prompt: {useful_files}", level="prompt")
         self.log(f"file selection: {selected_files}")
 
@@ -86,7 +82,7 @@ class FileScout(lloam.Agent):
 
         # create explore task for every child dir
         await useful_dirs
-        selected_dirs = extract_ticks(useful_dirs.directories)
+        selected_dirs = extract_ticks(useful_dirs.directories.result())
         self.log(f"prompt: {useful_dirs}", level="prompt")
         self.log(f"dir selection: {selected_dirs}")
 
@@ -102,7 +98,6 @@ class FileScout(lloam.Agent):
 
 
             self.task_graph[directory].append(selected_dir)
-            self.log(f"Exploring directory {selected_dir}")
             task = asyncio.create_task(self.explore_dir(selected_dir))
 
             children.append(task)
@@ -113,6 +108,8 @@ class FileScout(lloam.Agent):
 
 
     async def get_file_description(self, path):
+        self.log(f"Opening {path}", level="update")
+
         contents = self.explorer.cat(path)
         description = self.describe_file(path, contents)
         await description
@@ -166,12 +163,10 @@ class FileScout(lloam.Agent):
     @lloam.prompt()
     def final_summary(self):
         """
-        Given this context:
-        ```
-        {self.files}
-        ```
-
         {self.initial_query}
+
+        I've explored the project and here's what I found:
+        {self.files}
 
         [conclusion]
         """
@@ -179,7 +174,7 @@ class FileScout(lloam.Agent):
 
 if __name__ == "__main__":
     test_dir = "/Users/lachlangray/dev/dixie/evaluation/workspaces/sqlfluff_issue_6335/sqlfluff"
-    scout = FileScout(test_dir, "I want to figure out what design paradigms are used in this repository")
+    scout = FileScout(test_dir, "I want to know all the dependencies of this project")
 
 
     scout.start()
