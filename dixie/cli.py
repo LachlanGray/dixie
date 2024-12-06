@@ -5,7 +5,8 @@ sys.path.append(file_dir)
 
 import argparse
 import threading
-from queue import Queue
+import json
+import time
 
 from scout import FileScout
 import lloam
@@ -19,6 +20,8 @@ bold = lambda x: f"\033[1m{x}\033[0m"
 clear_line = lambda: print("\033[A\033[K", end="")
 
 
+SAVE_DIR = os.path.expanduser("~/.local/dixie_threads")
+
 class Chat:
     def __init__(self):
         self.cwd= os.getcwd()
@@ -29,6 +32,43 @@ class Chat:
             "content": "",
         }]
 
+        self.refresh_context()
+        self.summary = None
+
+    def save(self):
+        if self.summary is None:
+            self.summary = self.summarize().text.result()
+
+        record = {
+            "messages" : self.messages,
+            "files": self.files,
+            "summary": self.summary,
+            "last_opened": time.time()
+        }
+
+        os.makedirs(SAVE_DIR, exist_ok=True)
+
+        with open(f"{SAVE_DIR}/{time.time()}.json", "w") as f:
+            json.dump(record, f)
+
+
+    @lloam.prompt
+    def summarize(self):
+        """
+        {self.messages}
+
+        Would you summarize our chat in a sentence?
+
+        [text]
+        """
+
+    def load(self, filename):
+        with open(filename, "r") as f:
+            record = json.load(f)
+
+        self.messages = record["messages"]
+        self.files = record["files"]
+        self.summary = record["summary"]
         self.refresh_context()
 
 
@@ -41,7 +81,7 @@ class Chat:
 
         cwd = f"Current directory: {self.cwd}"
         contents = "Directory contents:\n" + "\n".join(os.listdir(self.cwd))
-        files_context = "File info:\n" + "\n\n".join([f"{k}: {v}" for k, v in self.files.items()])
+        files_context = "File info:\n" + "\n\n".join([f"**{k}**: {v}" for k, v in self.files.items()])
 
         new_context = f"{cwd}\n{contents}\n{files_context}"
 
@@ -59,7 +99,6 @@ class Chat:
 
 
         self.scout(self.messages)
-
 
         completion = lloam.completion(self.messages)
 
@@ -94,11 +133,31 @@ class Chat:
         self.refresh_context(scout.files)
 
 
+def load_chats():
+    chats = []
+    for filename in os.listdir(SAVE_DIR):
+        with open(f"{SAVE_DIR}/{filename}", "r") as f:
+            record = json.load(f)
+
+        chats.append({
+            "time": record["last_opened"],
+            "summary": record["summary"],
+            "path": f"{SAVE_DIR}/{filename}"
+        })
+
+    return chats
+
+
+def continue_chat():
+    chats = load_chats()
+    return max(chats, key=lambda x: x["time"])["path"]
+
 
 def main():
 
-    # Set up argument parsing
     parser = argparse.ArgumentParser(description="Process a directory and query.")
+    parser.add_argument("-c", action="store_true", help="Continue most recent chat")
+    parser.add_argument("-d", type=str, help="Directory to confine the chat")
 
     # Parse the arguments
     args = parser.parse_args()
@@ -106,10 +165,16 @@ def main():
     directory = os.getcwd()
     chat = Chat()
 
+    if args.c:
+        saved = continue_chat()
+        chat.load(saved)
+    elif args.d:
+        directory = args.d
 
     while True:
         text = input(blue("> "))
         if text == "exit":
+            chat.save()
             break
 
         chat.user_message(text, directory)
