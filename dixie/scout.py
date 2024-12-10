@@ -30,15 +30,27 @@ class FileScout(lloam.Agent):
         asyncio.run(self._start())
 
 
-    async def _start(self):
+    async def _start(self, timeout=10):
         await self.explore_dir(self.explorer.cwd)
 
         n_files = len(self.tasks)
 
         self.log(f"Awaiting {n_files} tasks to complete.", level="update")
-        await asyncio.gather(*self.tasks.values())
+        try:
+            for coro in asyncio.as_completed(self.tasks.values(), timeout=timeout):
+                n_files -= 1
+                await coro
+                self.log(f"Awaiting {n_files} tasks to complete.", level="update")
+        except asyncio.TimeoutError:
+            self.log(f"Timed out after {timeout} seconds", level="error")
 
-        self.log(f"{n_files} tasks completed.", level="finished")
+            for k in self.tasks:
+                if not self.tasks[k].done():
+                    self.tasks[k].cancel()
+                    self.files[k] = "This file timed out. If it's important, mention it, otherwise ignore."
+                    self.log(f"{k} timed out", level="error")
+
+        self.log(f"Done.", level="finished")
 
 
     async def explore_dir(self, directory):
@@ -65,8 +77,11 @@ class FileScout(lloam.Agent):
 
 
         for selected_file in selected_files:
-            selected_file = os.path.split(selected_file)[-1]
-            file_path = os.path.join(directory, selected_file)
+            if self.explorer.is_file(selected_file):
+                file_path = selected_file
+            else:
+                selected_file = os.path.split(selected_file)[-1]
+                file_path = os.path.join(directory, selected_file)
 
             if not self.explorer.is_file(file_path):
                 self.log(f"{file_path} is not a file", level="warning")
@@ -123,12 +138,12 @@ class FileScout(lloam.Agent):
         """
         {self.initial_query}
 
-        I'm in the directory `{directory}`, and here's what's in it
+        In the directory `{directory}`:
         ```
         {ls}
         ```
 
-        In a sentence, which files should I look at?
+        In a sentence, which files should I investigate?
         [filenames]
         """
 
@@ -137,12 +152,13 @@ class FileScout(lloam.Agent):
         """
         {self.initial_query}
 
-        I'm in the directory `{directory}`, and here's what's in it
+        In the directory `{directory}`, here are its contents:
         ```
         {ls}
         ```
 
-        In a sentence, which directories should I investigate?
+        In a few sentences, which subdirectories should I explore?
+        Please use `backticks` to indicate directories
         [directories]
         """
 
@@ -151,24 +167,13 @@ class FileScout(lloam.Agent):
         """
         {self.initial_query}
 
-        Here is one file `{filename}`
+        Here are the contents of `{filename}`:
         ```
         {contents}
         ```
 
-        In a short sentence what can we learn from it?
+        In a few sentences, what do we learn from this file?
         [description]
-        """
-
-    @lloam.prompt()
-    def final_summary(self):
-        """
-        {self.initial_query}
-
-        I've explored the project and here's what I found:
-        {self.files}
-
-        [conclusion]
         """
 
 
