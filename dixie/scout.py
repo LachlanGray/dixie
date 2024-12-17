@@ -50,7 +50,7 @@ class FileScout(lloam.Agent):
                     self.files[k] = "This file timed out. If it's important, mention it, otherwise ignore."
                     self.log(f"{k} timed out", level="error")
 
-        self.log(f"Done.", level="finished")
+        self.log(f"{len(self.tasks)} tasks done.", level="finished")
 
 
     async def explore_dir(self, directory):
@@ -144,7 +144,7 @@ class FileScout(lloam.Agent):
         ```
 
         In a sentence, which files should I investigate?
-        [filenames]
+        [[filenames]]
         """
 
     @lloam.prompt()
@@ -159,7 +159,7 @@ class FileScout(lloam.Agent):
 
         In a few sentences, which subdirectories should I explore?
         Please use `backticks` to indicate directories
-        [directories]
+        [[directories]]
         """
 
     @lloam.prompt()
@@ -173,7 +173,7 @@ class FileScout(lloam.Agent):
         ```
 
         In a few sentences, what do we learn from this file?
-        [description]
+        [[description]]
         """
 
 

@@ -59,7 +59,7 @@ class Chat:
 
         Would you summarize our chat in a sentence?
 
-        [text]
+        [[text].]
         """
 
     def load(self, filename):
@@ -123,6 +123,11 @@ class Chat:
             if log["level"] == "update":
                 clear_line()
                 print(cyan(log["message"]))
+
+            elif log["level"] == "error":
+                clear_line()
+                print(red(log["message"]))
+                print()
 
             elif log["level"] == "finished":
                 clear_line()
