@@ -62,6 +62,7 @@ class Chat:
         [[text].]
         """
 
+
     def load(self, filename):
         with open(filename, "r") as f:
             record = json.load(f)
@@ -187,3 +188,13 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    # directory = "/Users/lachlangray/sieve/GPEN"
+    # # message = "how do I set up inference for this repository?"
+    # message = "what model architecture is used in this repository?"
+
+    # chat = Chat()
+    # chat.user_message(message, directory)
+
+
+
